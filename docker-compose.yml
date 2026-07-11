@@ -1,0 +1,22 @@
+services:
+  app:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      TSP_DATABASE_URL: postgresql+psycopg://tsp:tsp_secret@db:5432/termsheets
+      BEDROCK_GATEWAY_URL: ${BEDROCK_GATEWAY_URL:-}
+      BEDROCK_API_KEY: ${BEDROCK_API_KEY:-}
+    volumes:
+      - app_data:/app/data
+    depends_on: [db]
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: tsp
+      POSTGRES_PASSWORD: tsp_secret
+      POSTGRES_DB: termsheets
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+volumes:
+  app_data:
+  pg_data:

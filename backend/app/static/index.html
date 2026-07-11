@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Term Sheet Parser · EQD Trade Capture</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-title">
+    <h1>Term&nbsp;Sheet&nbsp;Parser</h1>
+    <span class="masthead-sub">EQD structured products · FCN / BEN / Autocall · agent-assisted trade capture</span>
+  </div>
+  <div class="statbar" id="statbar" aria-live="polite"></div>
+</header>
+
+<main class="layout">
+  <aside class="rail">
+    <section class="upload-card" id="dropzone">
+      <input type="file" id="file-input" accept=".pdf,.docx,.doc,.txt" hidden>
+      <p class="upload-headline">Upload a term sheet</p>
+      <p class="upload-hint">Drop a PDF or Word file here, or <button class="linklike" id="browse-btn">browse</button>.
+      Counterparty names and contact data are masked before anything reaches the LLM.</p>
+      <p class="upload-status" id="upload-status"></p>
+    </section>
+
+    <nav class="doclist" aria-label="Uploaded term sheets">
+      <h2 class="rail-heading">Blotter</h2>
+      <ul id="doc-list"></ul>
+    </nav>
+
+    <section class="lessons-card">
+      <h2 class="rail-heading">What the agents learned <button class="linklike" id="refresh-lessons">refresh</button></h2>
+      <ul id="lesson-list"></ul>
+    </section>
+  </aside>
+
+  <section class="review" id="review">
+    <div class="empty-state" id="empty-state">
+      <p>Select a term sheet from the blotter, or upload one to start.</p>
+      <p class="empty-sub">The agents will parse it, mask sensitive data, recall past
+      lessons, extract the trade economics and review their own work before it lands here.</p>
+    </div>
+    <div id="review-body" hidden></div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

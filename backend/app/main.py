@@ -1,6 +1,12 @@
 """Term Sheet Parser — application entrypoint.
 
-Run:  uvicorn backend.app.main:app --reload --port 8000
+All settings (port, LLM provider, database, …) are read from .env at the
+project root.  See .env for the full reference.
+
+Quick start:
+    ./run.sh                                   # reads .env automatically
+    # or manually:
+    uvicorn backend.app.main:app --port 8000
 GUI:  http://localhost:8000
 """
 from pathlib import Path
@@ -33,3 +39,12 @@ def index():
 @app.get("/health", include_in_schema=False)
 def health():
     return {"status": "ok", "version": APP_VERSION}
+
+
+# Allow running as a script: python -m backend.app.main
+if __name__ == "__main__":
+    import uvicorn
+    from .config import TSP_HOST, TSP_LOG_LEVEL, TSP_PORT, TSP_RELOAD
+    uvicorn.run("backend.app.main:app",
+                host=TSP_HOST, port=TSP_PORT,
+                reload=TSP_RELOAD, log_level=TSP_LOG_LEVEL)

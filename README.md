@@ -44,15 +44,21 @@ Upload (PDF/Word) ─▶ Ingestion ─▶ Masking ─▶ Memory ─▶ Extractio
 ```bash
 git clone -b draft https://github.com/mponmalar/termsheetparser.git
 cd termsheetparser
+
+# All settings are in one place — edit before first run
+cp .env.example .env        # already present after clone; edit as needed
+
+# Dependencies stay inside .venv/ — nothing touches your global Python
 python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn backend.app.main:app --port 8000
+
+./run.sh                    # reads host / port / log-level from .env
 # open http://localhost:8000 and upload a file from samples/
 ```
 
-Dependencies are installed inside `.venv/` and never touch your global Python.
-Run `deactivate` to leave the environment; next time just `source .venv/bin/activate`.
+Or skip the venv steps on repeat visits — `run.sh` creates `.venv`
+automatically if it is absent, then reads all settings from `.env`.
 
 Or with Docker (PostgreSQL included): `docker compose up --build`
 

@@ -10,3 +10,4 @@ scikit-learn>=1.4
 httpx>=0.27
 boto3>=1.34            # only needed for TSP_LLM_PROVIDER=bedrock (direct AWS)
 pytest>=8.0
+python-dotenv>=1.0

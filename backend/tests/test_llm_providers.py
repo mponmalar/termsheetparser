@@ -27,10 +27,12 @@ def test_explicit_provider_wins_over_auto_detection():
 def test_explicit_provider_with_missing_config_fails_loudly():
     with pytest.raises(ValueError, match="BEDROCK_GATEWAY_URL"):
         llm_client.resolve_provider("gateway", gateway_url="", region="")
-    with pytest.raises(ValueError, match="region"):
+    with pytest.raises(ValueError, match="BEDROCK_REGION"):
         llm_client.resolve_provider("bedrock", gateway_url="", region="")
     with pytest.raises(ValueError, match="invalid"):
         llm_client.resolve_provider("banana", gateway_url="", region="")
+    with pytest.raises(ValueError, match="BEDROCK_API_KEY"):
+        llm_client.resolve_provider("bedrock_key", gateway_url="", api_key="", region="ap-southeast-1")
 
 
 # ------------------------------------------------- direct Bedrock (Converse)

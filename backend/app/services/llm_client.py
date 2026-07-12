@@ -1,29 +1,28 @@
-"""LLM client — routes prompts to one of three interchangeable providers,
+"""LLM client — routes prompts to one of four interchangeable providers,
 selected by TSP_LLM_PROVIDER (see config.py):
 
-  gateway   The bank's internal Bedrock gateway URL (HTTP + API key).
-            Contract: Anthropic messages-API shape —
-                POST {BEDROCK_GATEWAY_URL}
-                Headers: {BEDROCK_AUTH_HEADER}: Bearer {BEDROCK_API_KEY}
-                Body: {"model", "max_tokens", "messages":[{"role":"user",...}]}
-            If your gateway wraps Bedrock invoke-model instead, only
-            _call_gateway needs adjusting.
+  gateway     The bank's internal Bedrock gateway URL (HTTP + API key,
+              Anthropic messages-API shape).
 
-  bedrock   Direct AWS Bedrock via boto3 (bedrock-runtime Converse API).
-            Auth is the standard AWS credential chain (env keys, AWS_PROFILE,
-            ~/.aws, instance/ECS role) — SigV4, no API key in this app.
-            Region from BEDROCK_REGION / AWS_REGION; optional VPC endpoint
-            via BEDROCK_ENDPOINT_URL.
+  bedrock_key Direct AWS Bedrock REST API using a long-term Bedrock API key
+              (generated in AWS Console → Bedrock → API keys). No IAM/SigV4
+              needed. Uses the Converse REST endpoint:
+                POST https://bedrock-runtime.{region}.amazonaws.com
+                     /model/{modelId}/converse
+              Set BEDROCK_API_KEY to the long-term key value.
 
-  mock      Deterministic offline extractor with the identical prompt/JSON
-            contract, used for dev and CI.
+  bedrock     Direct AWS Bedrock via boto3 (SigV4 / IAM credential chain).
+              Needs BEDROCK_REGION + AWS IAM credentials (env keys,
+              AWS_PROFILE, ~/.aws/credentials, or instance role).
 
-  auto      gateway if BEDROCK_GATEWAY_URL is set, else bedrock if an AWS
-            region is configured, else mock.
+  mock        Deterministic offline extractor (dev / CI).
 
-IMPORTANT: only *masked* text ever reaches this module. The MaskingAgent
-runs strictly before the ExtractionAgent in the graph, and the raw text is
-never placed in the prompt — this holds for every provider.
+  auto        bedrock_key if BEDROCK_API_KEY+BEDROCK_REGION set,
+              gateway if BEDROCK_GATEWAY_URL set,
+              bedrock if BEDROCK_REGION set (IAM credentials assumed),
+              else mock.
+
+IMPORTANT: only *masked* text ever reaches this module.
 """
 import json
 import logging
@@ -38,45 +37,52 @@ from . import mock_llm
 
 log = logging.getLogger("tsp.llm")
 
-VALID_PROVIDERS = ("gateway", "bedrock", "mock", "auto")
+VALID_PROVIDERS = ("gateway", "bedrock_key", "bedrock", "mock", "auto")
 
 
 def resolve_provider(setting: str = None,
                      gateway_url: str = None,
+                     api_key: str = None,
                      region: str = None) -> str:
-    """Turn the configured setting into a concrete provider name.
-
-    Explicit settings win; 'auto' prefers the gateway (the safer, bank-side
-    path), then direct Bedrock if an AWS region is configured, else mock.
-    """
-    setting = (LLM_PROVIDER if setting is None else setting).strip().lower()
+    setting   = (LLM_PROVIDER      if setting     is None else setting).strip().lower()
     gateway_url = BEDROCK_GATEWAY_URL if gateway_url is None else gateway_url
-    region = BEDROCK_REGION if region is None else region
+    api_key   = BEDROCK_API_KEY    if api_key     is None else api_key
+    region    = BEDROCK_REGION     if region      is None else region
 
     if setting not in VALID_PROVIDERS:
         raise ValueError(
             f"TSP_LLM_PROVIDER={setting!r} is invalid; expected one of {VALID_PROVIDERS}")
+
     if setting != "auto":
         if setting == "gateway" and not gateway_url:
             raise ValueError("TSP_LLM_PROVIDER=gateway but BEDROCK_GATEWAY_URL is not set")
+        if setting == "bedrock_key" and not api_key:
+            raise ValueError("TSP_LLM_PROVIDER=bedrock_key but BEDROCK_API_KEY is not set")
+        if setting == "bedrock_key" and not region:
+            raise ValueError("TSP_LLM_PROVIDER=bedrock_key but BEDROCK_REGION is not set")
         if setting == "bedrock" and not region:
-            raise ValueError(
-                "TSP_LLM_PROVIDER=bedrock but no region configured "
-                "(set BEDROCK_REGION or AWS_REGION)")
+            raise ValueError("TSP_LLM_PROVIDER=bedrock but BEDROCK_REGION is not set")
         return setting
+
+    # auto resolution — order of preference:
+    # 1. Bedrock long-term API key (simplest, no IAM setup)
+    if api_key and region:
+        return "bedrock_key"
+    # 2. Bank gateway (HTTP + its own key)
     if gateway_url:
         return "gateway"
+    # 3. Direct boto3 / IAM
     if region:
         return "bedrock"
+    # 4. Offline mock
     return "mock"
 
 
 def llm_mode() -> str:
-    """Concrete provider in use — surfaced in the GUI, stats and audit rows."""
     return resolve_provider()
 
 
-# --------------------------------------------------------------- providers --
+# --------------------------------------------------------- provider: gateway
 def _call_gateway(prompt: str) -> str:
     headers = {"Content-Type": "application/json"}
     if BEDROCK_API_KEY:
@@ -90,28 +96,47 @@ def _call_gateway(prompt: str) -> str:
         resp = client.post(BEDROCK_GATEWAY_URL, headers=headers, json=body)
         resp.raise_for_status()
         data = resp.json()
-    # messages API: {"content":[{"type":"text","text": ...}]}
     if isinstance(data.get("content"), list):
         return "".join(b.get("text", "") for b in data["content"] if b.get("type") == "text")
-    # some gateways: {"completion": "..."} or {"output": "..."}
     return data.get("completion") or data.get("output") or json.dumps(data)
 
 
+# ------------------------------------------------- provider: bedrock_key
+def _call_bedrock_key(prompt: str) -> str:
+    """AWS Bedrock long-term API key → REST Converse endpoint, no SigV4."""
+    base = (BEDROCK_ENDPOINT_URL.rstrip("/")
+            if BEDROCK_ENDPOINT_URL
+            else f"https://bedrock-runtime.{BEDROCK_REGION}.amazonaws.com")
+    url = f"{base}/model/{BEDROCK_MODEL_ID}/converse"
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {BEDROCK_API_KEY}",
+    }
+    body = {
+        "messages": [{"role": "user", "content": [{"text": prompt}]}],
+        "inferenceConfig": {"maxTokens": LLM_MAX_TOKENS, "temperature": 0.0},
+    }
+    with httpx.Client(timeout=BEDROCK_TIMEOUT_SECONDS) as client:
+        resp = client.post(url, headers=headers, json=body)
+        if not resp.is_success:
+            raise RuntimeError(
+                f"Bedrock API key call failed {resp.status_code}: {resp.text[:400]}")
+        data = resp.json()
+    return parse_converse_response(data)
+
+
+# ------------------------------------------------- provider: bedrock (boto3)
 _bedrock_client = None
 
 
 def _get_bedrock_client():
-    """Lazily build (and cache) the boto3 bedrock-runtime client.
-
-    boto3 is an optional dependency: it is only imported when the direct
-    provider is actually selected, so gateway/mock deployments don't need it.
-    """
     global _bedrock_client
     if _bedrock_client is None:
         try:
             import boto3
             from botocore.config import Config as BotoConfig
-        except ImportError as exc:  # pragma: no cover
+        except ImportError as exc:
             raise RuntimeError(
                 "TSP_LLM_PROVIDER=bedrock requires boto3 — pip install boto3") from exc
         kwargs = {
@@ -129,7 +154,6 @@ def _get_bedrock_client():
 
 
 def parse_converse_response(data: dict) -> str:
-    """Extract the text from a Bedrock Converse API response."""
     blocks = (data.get("output", {}).get("message", {}) or {}).get("content", [])
     text = "".join(b.get("text", "") for b in blocks if "text" in b)
     if not text:
@@ -138,8 +162,6 @@ def parse_converse_response(data: dict) -> str:
 
 
 def _call_bedrock_direct(prompt: str) -> str:
-    """Direct AWS call using the model-agnostic Converse API, so switching
-    BEDROCK_MODEL_ID between Anthropic/Titan/etc. needs no code change."""
     client = _get_bedrock_client()
     resp = client.converse(
         modelId=BEDROCK_MODEL_ID,
@@ -150,9 +172,10 @@ def _call_bedrock_direct(prompt: str) -> str:
 
 
 _PROVIDER_FNS = {
-    "gateway": _call_gateway,
-    "bedrock": _call_bedrock_direct,
-    "mock": mock_llm.complete,
+    "gateway":     _call_gateway,
+    "bedrock_key": _call_bedrock_key,
+    "bedrock":     _call_bedrock_direct,
+    "mock":        mock_llm.complete,
 }
 
 
@@ -162,9 +185,7 @@ def complete(prompt: str) -> str:
     return _PROVIDER_FNS[provider](prompt)
 
 
-# ------------------------------------------------------------------ parsing --
 def parse_json_response(text: str) -> dict:
-    """LLMs sometimes wrap JSON in prose or code fences; recover robustly."""
     text = text.strip()
     if text.startswith("```"):
         text = text.strip("`")

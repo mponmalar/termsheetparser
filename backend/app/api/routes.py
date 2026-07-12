@@ -8,16 +8,21 @@ import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import (APIRouter, BackgroundTasks, Depends, HTTPException,
-                     UploadFile)
+from fastapi import (APIRouter, BackgroundTasks, Body, Depends, HTTPException,
+                     File, Form, UploadFile)
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..agents.graph import run_pipeline
+from ..agents.ingestion import ingestion_node
+from ..agents.masking import masking_node
 from ..agents.memory import record_correction_lesson
+from ..agents.state import PipelineState
 from ..config import UPLOAD_DIR
 from ..db.database import get_session
-from ..db.models import (AgentRun, Correction, Document, Extraction, Lesson,
+from ..db.models import utcnow
+from ..db.models import (AgentRun, Correction, Document, Extraction, FieldImportance,
+                         Lesson, TrainingSample,
                          PublishRecord)
 from ..schemas import TERM_SHEET_FIELDS
 from ..services.llm_client import llm_mode
@@ -227,3 +232,173 @@ def publish_queue(db: Session = Depends(get_session)):
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "payload": r.payload,
     } for r in rows]
+
+
+# =============================================================================
+# Training routes
+# =============================================================================from ..agents.ingestion import ingestion_nodefrom ..agents.state import PipelineState
+
+
+@router.post("/training/samples", status_code=201)
+def upload_training_sample(
+    file: UploadFile = File(...),
+    labelled_fields: str = Form(...),       # JSON string
+    field_importance: str = Form("{}"),     # JSON string {field: 1|2|3}
+    notes: str = Form(""),
+    uploaded_by: str = Form("trainer"),
+    db: Session = Depends(get_session),
+):
+    """Upload a term sheet + correct field values to seed the lesson store."""
+    import json as _json
+
+    try:
+        fields = _json.loads(labelled_fields)
+        importance = _json.loads(field_importance)
+    except Exception:
+        raise HTTPException(400, "labelled_fields and field_importance must be valid JSON")
+
+    # Persist file
+    dest = UPLOAD_DIR / file.filename
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    # Ingest + mask locally (same pipeline nodes, no LLM call)
+    state: PipelineState = {
+        "document_id": -1, "file_path": str(dest),
+        "raw_text": "", "masked_text": "", "mask_map": {},
+        "lessons": [], "prompt": "", "extracted_fields": {},
+        "field_meta": {}, "critic_notes": [], "critic_iterations": 0,
+        "approved": False, "agent_trace": [], "error": None,
+    }
+    state = ingestion_node(state)
+    state = masking_node(state)
+
+    sample = TrainingSample(
+        filename=file.filename,
+        stored_path=str(dest),
+        raw_text=state["raw_text"],
+        masked_text=state["masked_text"],
+        mask_map=state["mask_map"],
+        labelled_fields=fields,
+        field_importance=importance,
+        uploaded_by=uploaded_by,
+        notes=notes,
+    )
+    db.add(sample)
+    db.flush()
+
+    # Generate lessons from every labelled field
+    lessons_created = _generate_training_lessons(sample, db)
+    sample.lessons_created = lessons_created
+    db.commit()
+
+    return {
+        "sample_id": sample.id,
+        "filename": sample.filename,
+        "lessons_created": lessons_created,
+        "fields_labelled": len(fields),
+    }
+
+
+def _generate_training_lessons(sample: "TrainingSample", db: Session) -> int:
+    """Turn each labelled field into a Lesson with source='training'."""
+    from ..db.models import Lesson as LessonModel
+    importance_map = sample.field_importance or {}
+    fingerprint = (sample.masked_text or "")[:2000]
+    count = 0
+    for field, value in sample.labelled_fields.items():
+        if value is None or value == "":
+            continue
+        imp = importance_map.get(field, 2)   # 1|2|3
+        lesson_text = (
+            f"[TRAINING importance={imp}] "
+            f"For field '{field}', the correct value is '{value}'. "
+            f"This was labelled by a human expert on document '{sample.filename}'."
+        )
+        lesson = LessonModel(
+            source="training",
+            field_name=field,
+            document_fingerprint=fingerprint,
+            wrong_value=None,
+            right_value=str(value),
+            lesson_text=lesson_text,
+        )
+        db.add(lesson)
+        count += 1
+    return count
+
+
+@router.get("/training/samples")
+def list_training_samples(db: Session = Depends(get_session)):
+    samples = db.query(TrainingSample).order_by(TrainingSample.id.desc()).all()
+    return [
+        {
+            "id": s.id,
+            "filename": s.filename,
+            "uploaded_by": s.uploaded_by,
+            "created_at": s.created_at.isoformat(),
+            "fields_labelled": len(s.labelled_fields or {}),
+            "lessons_created": s.lessons_created,
+            "notes": s.notes,
+            "field_importance": s.field_importance,
+        }
+        for s in samples
+    ]
+
+
+@router.get("/training/samples/{sample_id}")
+def get_training_sample(sample_id: int, db: Session = Depends(get_session)):
+    s = db.query(TrainingSample).filter(TrainingSample.id == sample_id).first()
+    if not s:
+        raise HTTPException(404, "Training sample not found")
+    return {
+        "id": s.id, "filename": s.filename, "notes": s.notes,
+        "uploaded_by": s.uploaded_by, "created_at": s.created_at.isoformat(),
+        "labelled_fields": s.labelled_fields,
+        "field_importance": s.field_importance,
+        "lessons_created": s.lessons_created,
+        "masked_preview": (s.masked_text or "")[:3000],
+    }
+
+
+@router.delete("/training/samples/{sample_id}", status_code=204)
+def delete_training_sample(sample_id: int, db: Session = Depends(get_session)):
+    s = db.query(TrainingSample).filter(TrainingSample.id == sample_id).first()
+    if not s:
+        raise HTTPException(404, "Training sample not found")
+    db.delete(s)
+    db.commit()
+
+
+# --- Field importance (desk-wide settings) -----------------------------------
+
+@router.get("/training/field-importance")
+def get_field_importance(db: Session = Depends(get_session)):
+    rows = {r.field_name: r.importance
+            for r in db.query(FieldImportance).all()}
+    # Fill defaults for all known fields
+    from ..schemas import TERM_SHEET_FIELDS
+    return {f: rows.get(f, 2) for f in TERM_SHEET_FIELDS}
+
+
+@router.put("/training/field-importance")
+def set_field_importance(
+    body: dict = Body(...),
+    db: Session = Depends(get_session),
+):
+    """body = {field_name: 1|2|3, ...}"""
+    updated_by = body.pop("updated_by", "trainer")
+    for field, imp in body.items():
+        if imp not in (1, 2, 3):
+            raise HTTPException(400, f"Importance for '{field}' must be 1, 2, or 3")
+        row = db.query(FieldImportance).filter(
+            FieldImportance.field_name == field).first()
+        if row:
+            row.importance = imp
+            row.updated_by = updated_by
+            row.updated_at = utcnow()
+        else:
+            db.add(FieldImportance(field_name=field, importance=imp,
+                                   updated_by=updated_by))
+    db.commit()
+    return {"updated": len(body)}

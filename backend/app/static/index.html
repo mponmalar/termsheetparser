@@ -37,12 +37,88 @@
   </aside>
 
   <section class="review" id="review">
-    <div class="empty-state" id="empty-state">
-      <p>Select a term sheet from the blotter, or upload one to start.</p>
-      <p class="empty-sub">The agents will parse it, mask sensitive data, recall past
-      lessons, extract the trade economics and review their own work before it lands here.</p>
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="review-pane">Review</button>
+      <button class="tab-btn" data-tab="training-pane">Training</button>
     </div>
-    <div id="review-body" hidden></div>
+
+    <!-- Review tab -->
+    <div class="tab-pane active" id="review-pane">
+      <div class="empty-state" id="empty-state">
+        <p>Select a term sheet from the blotter, or upload one to start.</p>
+        <p class="empty-sub">The agents will parse it, mask sensitive data, recall past
+        lessons, extract the trade economics and review their own work before it lands here.</p>
+      </div>
+      <div id="review-body" hidden></div>
+    </div>
+
+    <!-- Training tab -->
+    <div class="tab-pane" id="training-pane" hidden>
+      <div class="training-layout">
+
+        <!-- Left: upload + field importance -->
+        <div class="training-left">
+          <div class="panel">
+            <div class="panel-head">Upload training sample</div>
+            <div class="panel-body">
+              <p class="upload-hint">Upload a term sheet with known correct values. The agents learn from these directly — no extraction needed.</p>
+
+              <div class="training-dropzone" id="train-dropzone">
+                <input type="file" id="train-file-input" accept=".pdf,.docx,.doc,.txt" hidden>
+                <p>Drop a term sheet here or <button class="linklike" id="train-browse-btn">browse</button></p>
+                <p class="upload-hint" id="train-file-name"></p>
+              </div>
+
+              <label class="field-label">Notes (optional)
+                <textarea id="train-notes" rows="2" placeholder="e.g. UBS worst-of FCN template, SGD, 3 stocks"></textarea>
+              </label>
+
+              <button class="btn btn-primary" id="train-submit-btn" disabled>Upload &amp; generate lessons</button>
+              <p class="upload-status" id="train-status"></p>
+            </div>
+          </div>
+
+          <!-- Field importance settings -->
+          <div class="panel" id="importance-panel">
+            <div class="panel-head">
+              Field importance
+              <span class="upload-hint">Controls how strongly lessons influence extractions</span>
+            </div>
+            <div class="panel-body">
+              <div id="importance-grid"></div>
+              <button class="btn" id="save-importance-btn">Save importance settings</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: field labelling form -->
+        <div class="training-right">
+          <div class="panel">
+            <div class="panel-head">Label the correct field values
+              <span class="upload-hint">Fill in the fields you want the agents to learn. Leave blank to skip.</span>
+            </div>
+            <div class="panel-body">
+              <div id="train-field-form"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Training library -->
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-head">Training library <button class="linklike" id="refresh-training">refresh</button></div>
+        <div class="panel-body">
+          <table class="train-table" id="train-library">
+            <thead><tr>
+              <th>File</th><th>Fields labelled</th><th>Lessons</th><th>Uploaded by</th><th>Date</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </section>
 </main>
 

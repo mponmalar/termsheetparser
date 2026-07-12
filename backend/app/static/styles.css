@@ -215,3 +215,56 @@ h1, h2, h3 { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* ----------------------------------------------------------------- tabs */
+.tab-bar { display:flex; gap:4px; border-bottom:2px solid var(--border); padding:0 20px; background:var(--bg); }
+.tab-btn { background:none; border:none; border-bottom:3px solid transparent;
+  margin-bottom:-2px; padding:10px 18px; font:500 13px var(--font-system);
+  color:var(--ink-mid); cursor:pointer; transition:color .15s,border-color .15s; }
+.tab-btn:hover { color:var(--ink); }
+.tab-btn.active { color:var(--accent-ink); border-bottom-color:var(--accent-ink); }
+.tab-pane { display:none; padding:20px; }
+.tab-pane.active { display:block; }
+
+/* ------------------------------------------------------------ training */
+.training-layout { display:grid; grid-template-columns:360px 1fr; gap:16px; }
+.training-dropzone { border:2px dashed var(--border); border-radius:6px; padding:20px;
+  text-align:center; cursor:pointer; transition:border-color .2s, background .2s; }
+.training-dropzone.dragover { border-color:var(--accent-ink); background:var(--accent-bg); }
+.field-label { display:flex; flex-direction:column; gap:4px; font:500 12px var(--font-system);
+  color:var(--ink-mid); margin-top:12px; }
+.field-label textarea, .field-label input { border:1px solid var(--border); border-radius:4px;
+  padding:6px 8px; font:13px var(--font-mono); resize:vertical; }
+
+/* importance grid */
+#importance-grid { display:grid; grid-template-columns:1fr auto; gap:6px 12px;
+  align-items:center; margin-bottom:12px; }
+.imp-label { font:13px var(--font-system); color:var(--ink); }
+.imp-select { border:1px solid var(--border); border-radius:4px; padding:3px 6px;
+  font:12px var(--font-system); background:var(--bg); }
+.imp-select[value="3"], .imp-select.imp-high { border-color:#c84b31; color:#c84b31; }
+.imp-select[value="1"], .imp-select.imp-low  { color:var(--ink-mid); }
+
+/* training field form */
+#train-field-form { display:grid; grid-template-columns:180px 1fr auto; gap:6px 10px;
+  align-items:start; }
+.tf-label { font:500 12px var(--font-system); color:var(--ink-mid);
+  padding-top:7px; word-break:break-word; }
+.tf-input { border:1px solid var(--border); border-radius:4px; padding:5px 8px;
+  font:13px var(--font-mono); width:100%; }
+.tf-imp { border:1px solid var(--border); border-radius:4px; padding:4px 4px;
+  font:11px var(--font-system); background:var(--bg); width:72px; }
+.tf-group-header { grid-column:1/-1; font:600 11px var(--font-system);
+  color:var(--ink-mid); text-transform:uppercase; letter-spacing:.06em;
+  border-bottom:1px solid var(--border); padding-bottom:4px; margin-top:10px; }
+
+/* training library table */
+.train-table { width:100%; border-collapse:collapse; font:13px var(--font-system); }
+.train-table th { text-align:left; font:600 11px var(--font-system); color:var(--ink-mid);
+  text-transform:uppercase; letter-spacing:.05em; border-bottom:2px solid var(--border);
+  padding:6px 10px; }
+.train-table td { padding:8px 10px; border-bottom:1px solid var(--border); color:var(--ink); }
+.train-table tr:last-child td { border-bottom:none; }
+.btn-del { background:none; border:1px solid var(--border); border-radius:4px;
+  padding:2px 8px; font:11px var(--font-system); color:var(--ink-mid); cursor:pointer; }
+.btn-del:hover { border-color:#c84b31; color:#c84b31; }

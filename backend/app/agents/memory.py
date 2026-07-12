@@ -32,11 +32,23 @@ def load_ranked_lessons(masked_text: str) -> list[dict]:
             "lesson_text": r.lesson_text, "source": r.source,
         } for r in rows]
         ranked = rank_lessons(_fingerprint(masked_text), lessons,
-                              top_k=LESSON_TOP_K, min_similarity=LESSON_MIN_SIMILARITY)
+                              top_k=LESSON_TOP_K * 3,  # fetch more, then re-rank
+                              min_similarity=LESSON_MIN_SIMILARITY)
+        # Apply importance boost: training lessons with importance=3 score higher
         out = []
         for lesson, score in ranked:
-            lesson["score"] = round(score, 4)
+            boost = 1.0
+            if lesson.get("source") == "training":
+                # Extract importance from lesson_text tag [TRAINING importance=N]
+                import re as _re
+                m = _re.search(r"importance=(\d)", lesson.get("lesson_text", ""))
+                imp = int(m.group(1)) if m else 2
+                boost = {1: 0.8, 2: 1.0, 3: 1.4}.get(imp, 1.0)
+            lesson["score"] = round(score * boost, 4)
             out.append(lesson)
+        # Re-sort after boost and trim to top_k
+        out.sort(key=lambda x: x["score"], reverse=True)
+        out = out[:LESSON_TOP_K]
         # bump usage counters
         ids = [l["id"] for l in out]
         if ids:

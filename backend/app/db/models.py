@@ -140,3 +140,50 @@ class PublishRecord(Base):
     sent_at = Column(DateTime)
     murex_trade_id = Column(String(64))
     error = Column(Text)
+
+
+class TrainingSample(Base):
+    """A user-uploaded term sheet with manually labelled correct field values,
+    used to seed the lesson store with high-confidence training data.
+
+    Unlike corrections (which fix a bad extraction after the fact), training
+    samples are labelled *before* running the pipeline, so the agents learn
+    from human expertise directly rather than from their own mistakes.
+    """
+    __tablename__ = "training_samples"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=utcnow)
+    uploaded_by = Column(String(128), default="trainer")
+    filename = Column(String(512), nullable=False)
+    stored_path = Column(String(1024), nullable=False)
+    raw_text = Column(Text)
+    masked_text = Column(Text)
+    mask_map = Column(JSON)
+
+    # Labelled fields: {field_name: value}
+    labelled_fields = Column(JSON, nullable=False, default=dict)
+
+    # Per-field importance set by the user: {field_name: 1|2|3}
+    # 1 = low, 2 = medium (default), 3 = high (critical)
+    field_importance = Column(JSON, nullable=False, default=dict)
+
+    # How many lessons were generated from this sample
+    lessons_created = Column(Integer, default=0)
+
+    notes = Column(Text)   # free-text notes from the trainer
+
+
+class FieldImportance(Base):
+    """Global importance weights set by the desk for each field.
+    The MemoryAgent uses these to prioritise lessons: a correction on a
+    HIGH importance field generates a lesson with a higher weight that
+    ranks above other lessons during retrieval.
+    """
+    __tablename__ = "field_importance"
+
+    id = Column(Integer, primary_key=True)
+    field_name = Column(String(128), unique=True, nullable=False)
+    importance = Column(Integer, default=2)   # 1=low 2=medium 3=high
+    updated_at = Column(DateTime, default=utcnow)
+    updated_by = Column(String(128), default="trainer")

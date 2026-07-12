@@ -338,3 +338,193 @@ loadStats();
 loadDocs();
 loadLessons();
 setInterval(loadStats, 15000);
+
+/* ================================================================ TRAINING */
+
+const IMPORTANCE_LABELS = { 1: "Low", 2: "Medium", 3: "High" };
+
+// --- Tab switching --------------------------------------------------------
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-pane").forEach(p => { p.classList.remove("active"); p.hidden = true; });
+    btn.classList.add("active");
+    const pane = document.getElementById(btn.dataset.tab);
+    pane.classList.add("active");
+    pane.hidden = false;
+    if (btn.dataset.tab === "training-pane") {
+      loadImportanceGrid();
+      loadTrainingLibrary();
+    }
+  });
+});
+
+// --- Training file pick ---------------------------------------------------
+let trainFile = null;
+
+function wireTrainingUpload() {
+  const zone = $("#train-dropzone"), input = $("#train-file-input");
+  $("#train-browse-btn").onclick = () => input.click();
+  input.onchange = () => { if (input.files[0]) setTrainFile(input.files[0]); };
+  ["dragover","dragenter"].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.add("dragover"); }));
+  ["dragleave","drop"].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.remove("dragover"); }));
+  zone.addEventListener("drop", e => { if (e.dataTransfer.files[0]) setTrainFile(e.dataTransfer.files[0]); });
+}
+
+function setTrainFile(f) {
+  trainFile = f;
+  $("#train-file-name").textContent = f.name;
+  $("#train-submit-btn").disabled = false;
+}
+
+// --- Field importance grid -----------------------------------------------
+let importanceState = {};
+
+async function loadImportanceGrid() {
+  const data = await api("/api/training/field-importance");
+  importanceState = { ...data };
+  const grid = $("#importance-grid");
+  grid.innerHTML = "";
+  for (const [field, imp] of Object.entries(data)) {
+    const label = document.createElement("div");
+    label.className = "imp-label"; label.textContent = field;
+    const sel = document.createElement("select");
+    sel.className = "imp-select"; sel.dataset.field = field;
+    [1,2,3].forEach(v => {
+      const opt = document.createElement("option");
+      opt.value = v; opt.textContent = IMPORTANCE_LABELS[v];
+      if (v === imp) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.onchange = () => { importanceState[field] = parseInt(sel.value); updateImpColour(sel); };
+    updateImpColour(sel);
+    grid.appendChild(label);
+    grid.appendChild(sel);
+  }
+}
+
+function updateImpColour(sel) {
+  sel.classList.remove("imp-high","imp-low");
+  if (sel.value === "3") sel.classList.add("imp-high");
+  if (sel.value === "1") sel.classList.add("imp-low");
+}
+
+$("#save-importance-btn").onclick = async () => {
+  await api("/api/training/field-importance", {
+    method: "PUT", body: JSON.stringify({ ...importanceState, updated_by: "trainer" }) });
+  showTrainStatus("ok", "Field importance saved.");
+};
+
+// --- Training field form --------------------------------------------------
+function buildTrainFieldForm() {
+  const form = $("#train-field-form");
+  form.innerHTML = "";
+  for (const [group, names] of FIELD_GROUPS) {
+    const hdr = document.createElement("div");
+    hdr.className = "tf-group-header"; hdr.textContent = group;
+    form.appendChild(hdr);
+    for (const name of names) {
+      const lbl = document.createElement("div");
+      lbl.className = "tf-label"; lbl.textContent = name;
+
+      const inp = document.createElement("input");
+      inp.className = "tf-input"; inp.dataset.field = name;
+      inp.placeholder = name === "underlyings" ? '[ {"name":"AAPL","ticker":"AAPL:US",...} ]' : "";
+
+      const imp = document.createElement("select");
+      imp.className = "tf-imp"; imp.dataset.impFor = name;
+      [1,2,3].forEach(v => {
+        const opt = document.createElement("option");
+        opt.value = v; opt.textContent = IMPORTANCE_LABELS[v];
+        if (v === (importanceState[name] || 2)) opt.selected = true;
+        imp.appendChild(opt);
+      });
+
+      form.appendChild(lbl);
+      form.appendChild(inp);
+      form.appendChild(imp);
+    }
+  }
+}
+
+// --- Submit training sample -----------------------------------------------
+$("#train-submit-btn").onclick = async () => {
+  if (!trainFile) return showTrainStatus("err", "Please choose a file first.");
+
+  const fields = {}, fieldImp = {};
+  document.querySelectorAll(".tf-input").forEach(inp => {
+    const v = inp.value.trim();
+    if (v) {
+      try { fields[inp.dataset.field] = JSON.parse(v); }
+      catch { fields[inp.dataset.field] = v; }
+    }
+  });
+  document.querySelectorAll(".tf-imp").forEach(sel => {
+    fieldImp[sel.dataset.impFor] = parseInt(sel.value);
+  });
+
+  if (Object.keys(fields).length === 0)
+    return showTrainStatus("err", "Please fill in at least one field value.");
+
+  showTrainStatus("warn", "Uploading and generating lessons…");
+  const form = new FormData();
+  form.append("file", trainFile);
+  form.append("labelled_fields", JSON.stringify(fields));
+  form.append("field_importance", JSON.stringify(fieldImp));
+  form.append("notes", $("#train-notes").value);
+
+  try {
+    const resp = await fetch("/api/training/samples", { method: "POST", body: form });
+    if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+    const data = await resp.json();
+    showTrainStatus("ok",
+      `✓ ${data.fields_labelled} fields labelled → ${data.lessons_created} lessons created. Agents will apply them on the next extraction.`);
+    trainFile = null;
+    $("#train-file-name").textContent = "";
+    $("#train-submit-btn").disabled = true;
+    document.querySelectorAll(".tf-input").forEach(i => i.value = "");
+    $("#train-notes").value = "";
+    await Promise.all([loadTrainingLibrary(), loadLessons(), loadStats()]);
+  } catch (err) {
+    showTrainStatus("err", `Upload failed: ${err.message}`);
+  }
+};
+
+// --- Training library -----------------------------------------------------
+async function loadTrainingLibrary() {
+  const samples = await api("/api/training/samples");
+  const tbody = $("#train-library tbody");
+  tbody.innerHTML = samples.length ? "" :
+    `<tr><td colspan="6" class="upload-hint" style="padding:16px">No training samples yet.</td></tr>`;
+  for (const s of samples) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(s.filename)}</td>
+      <td>${s.fields_labelled}</td>
+      <td>${s.lessons_created}</td>
+      <td>${escapeHtml(s.uploaded_by)}</td>
+      <td>${new Date(s.created_at).toLocaleDateString()}</td>
+      <td><button class="btn-del" data-id="${s.id}">Delete</button></td>`;
+    tr.querySelector(".btn-del").onclick = () => deleteTrainingSample(s.id, s.filename);
+    tbody.appendChild(tr);
+  }
+}
+
+async function deleteTrainingSample(id, name) {
+  if (!confirm(`Delete training sample "${name}"?\nLessons already generated will be kept.`)) return;
+  await api(`/api/training/samples/${id}`, { method: "DELETE" });
+  await loadTrainingLibrary();
+}
+
+function showTrainStatus(kind, text) {
+  const el = $("#train-status");
+  if (el) el.innerHTML = `<div class="notice notice-${kind}">${escapeHtml(text)}</div>`;
+}
+
+$("#refresh-training").onclick = loadTrainingLibrary;
+
+// Initialise training tab on page load
+wireTrainingUpload();
+buildTrainFieldForm();

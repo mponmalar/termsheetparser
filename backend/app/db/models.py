@@ -65,7 +65,7 @@ class Extraction(Base):
     critic_iterations = Column(Integer, default=0)
     critic_notes = Column(JSON, default=list)     # critique history (agent conversation)
     lessons_used = Column(JSON, default=list)     # lesson ids injected into the prompt
-    llm_mode = Column(String(32), default="mock") # "bedrock" | "mock"
+    llm_mode = Column(String(32), default="mock") # "gateway" | "bedrock" | "mock"
 
     approved = Column(Boolean, default=False)
     approved_by = Column(String(128))

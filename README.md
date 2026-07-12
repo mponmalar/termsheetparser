@@ -30,7 +30,7 @@ Upload (PDF/Word) ─▶ Ingestion ─▶ Masking ─▶ Memory ─▶ Extractio
 |---|---|
 | Upload front end for sales | Web GUI at `/` — drag-and-drop PDF/Word, live blotter, review ledger |
 | Mask sensitive data before the LLM | `MaskingAgent` runs **locally**: counterparty names, emails, phones, accounts, SWIFT/BIC, contact persons → `[CPTY_1]`-style tokens. The reversible map never leaves the box; values are restored locally after extraction |
-| Bedrock LLM via bank gateway | `services/llm_client.py` posts to `BEDROCK_GATEWAY_URL`. Unset → deterministic **MockLLM** so everything runs offline (dev/CI) |
+| Bedrock LLM — gateway **or** direct | `TSP_LLM_PROVIDER` switches between the bank gateway URL (`gateway`), direct AWS Bedrock via boto3/SigV4 (`bedrock`), and an offline deterministic **MockLLM** (`mock`); `auto` picks sensibly. Config-only switch, no code change |
 | Persist for self-learning | SQLite by default, PostgreSQL + pgvector recommended. Tables: documents, extractions, corrections, **lessons**, agent_runs, publish_queue |
 | Visual presentation of extractions | Field ledger grouped by Identification / Dates / Economics / Underlyings / Barriers / Settlement, with per-field provenance chips (LLM / LESSON / EDITED) |
 | Approve → save for Murex | Approval locks the extraction and queues a Murex-shaped payload (`publish_queue`) for the phase-2 connector |
@@ -51,17 +51,28 @@ uvicorn backend.app.main:app --port 8000
 
 Or with Docker (PostgreSQL included): `docker compose up --build`
 
-## Connect the real Bedrock gateway
+## Connect a real LLM — two access models, one switch
+
+**Bank gateway** (HTTP + API key):
 
 ```bash
+export TSP_LLM_PROVIDER=gateway
 export BEDROCK_GATEWAY_URL="https://llm-gateway.bank.internal/bedrock/v1/messages"
 export BEDROCK_API_KEY="…"
-export BEDROCK_MODEL_ID="anthropic.claude-3-5-sonnet-20241022-v2:0"
 ```
 
-The gateway is expected to speak the Anthropic messages-API shape; if yours
-wraps Bedrock `invoke-model`, adapt one function
-(`_call_gateway` in `backend/app/services/llm_client.py`).
+**Direct AWS Bedrock** (boto3, SigV4 / IAM — Converse API):
+
+```bash
+export TSP_LLM_PROVIDER=bedrock
+export BEDROCK_REGION=ap-southeast-1   # credentials via IAM role / AWS_PROFILE / env keys
+```
+
+Leave `TSP_LLM_PROVIDER=auto` and it selects gateway → direct → mock based on
+what's configured. The gateway is expected to speak the Anthropic
+messages-API shape; if yours wraps Bedrock `invoke-model`, adapt one function
+(`_call_gateway` in `backend/app/services/llm_client.py`). Masked text only,
+in every mode.
 
 ## Try the learning loop in 60 seconds
 

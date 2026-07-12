@@ -40,8 +40,8 @@ flowchart TB
         MRX[Murex payload builder]
     end
 
-    subgraph LLM["LLM boundary"]
-        GW[Bedrock gateway URL<br/>or MockLLM offline]
+    subgraph LLM["LLM boundary (TSP_LLM_PROVIDER)"]
+        GW[gateway: bank Bedrock gateway URL<br/>bedrock: direct AWS boto3/SigV4<br/>mock: offline extractor]
     end
 
     subgraph DB["Database (SQLite dev / PostgreSQL+pgvector prod)"]
@@ -191,8 +191,12 @@ Why this database design for self-learning:
   the pipeline is testable node-by-node and the state is a plain dict.
 * **FastAPI + SQLAlchemy** — typed API, background pipeline execution,
   SQLite→PostgreSQL portability.
-* **MockLLM behind the same client interface** — the whole system (including
-  the learning loop) runs and is CI-tested offline; flipping to Bedrock is an
-  environment variable, not a code change.
+* **Provider-switchable LLM client** — `TSP_LLM_PROVIDER` selects bank
+  gateway (HTTP+key), direct AWS Bedrock (boto3 Converse API, SigV4/IAM
+  credential chain, optional VPC endpoint), or the deterministic MockLLM —
+  behind one `complete(prompt)` interface. The whole system (including the
+  learning loop) runs and is CI-tested offline; flipping providers is an
+  environment variable, not a code change, and explicit misconfiguration
+  fails loudly instead of silently degrading to mock.
 * **Zero-build front end** — no npm, no CDN fonts/scripts; deploys inside a
   locked-down bank network as static files served by the API.

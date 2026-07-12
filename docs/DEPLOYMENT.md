@@ -64,11 +64,14 @@ BEDROCK_API_KEY=… docker compose up --build
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `BEDROCK_GATEWAY_URL` | *(empty → MockLLM)* | Bank's Bedrock gateway endpoint (messages-API shape) |
-| `BEDROCK_MODEL_ID` | `anthropic.claude-3-5-sonnet-20241022-v2:0` | Model routed by the gateway |
-| `BEDROCK_API_KEY` | *(empty)* | Sent as `Authorization: Bearer …` |
+| `TSP_LLM_PROVIDER` | `auto` | `gateway` \| `bedrock` (direct AWS) \| `mock` \| `auto` — see below |
+| `BEDROCK_MODEL_ID` | `anthropic.claude-3-5-sonnet-20241022-v2:0` | Model id (both providers) |
+| `BEDROCK_GATEWAY_URL` | *(empty)* | Bank's Bedrock gateway endpoint (messages-API shape) |
+| `BEDROCK_API_KEY` | *(empty)* | Gateway auth, sent as `Authorization: Bearer …` |
 | `BEDROCK_AUTH_HEADER` | `Authorization` | Change if the gateway expects e.g. `x-api-key` |
-| `BEDROCK_TIMEOUT_SECONDS` | `120` | Gateway call timeout |
+| `BEDROCK_REGION` | *(falls back to `AWS_REGION`)* | AWS region for the direct provider, e.g. `ap-southeast-1` |
+| `BEDROCK_ENDPOINT_URL` | *(empty)* | Optional `bedrock-runtime` VPC endpoint for the direct provider |
+| `BEDROCK_TIMEOUT_SECONDS` | `120` | LLM call timeout (both providers) |
 | `TSP_DATABASE_URL` | SQLite in `./data` | e.g. `postgresql+psycopg://user:pass@host:5432/termsheets` |
 | `TSP_DATA_DIR` | `./data` | Upload storage + SQLite location |
 | `TSP_MAX_CRITIC_ITERATIONS` | `3` | Extraction ⇄ critic loop budget |
@@ -76,6 +79,46 @@ BEDROCK_API_KEY=… docker compose up --build
 | `TSP_LESSON_MIN_SIMILARITY` | `0.05` | Minimum cosine similarity for a lesson to be applied |
 
 For PostgreSQL, also `pip install "psycopg[binary]"`.
+
+### Choosing the LLM access model
+
+The extraction agent reaches the model through one of three interchangeable
+providers; **switching is configuration only, no code change**:
+
+* **`gateway`** — bank-hosted Bedrock gateway (HTTP + API key). Use inside
+  networks where all LLM traffic must pass a central control point.
+
+  ```bash
+  export TSP_LLM_PROVIDER=gateway
+  export BEDROCK_GATEWAY_URL=https://llm-gw.bank.internal/bedrock/v1/messages
+  export BEDROCK_API_KEY=…
+  ```
+
+* **`bedrock`** — direct AWS Bedrock via boto3 (`bedrock-runtime` Converse
+  API, SigV4). Auth uses the standard AWS credential chain — environment
+  keys, `AWS_PROFILE`, `~/.aws/credentials`, or (preferred in production) an
+  instance/ECS/EKS role. Needs `pip install boto3` and IAM permission
+  `bedrock:InvokeModel` on the chosen model. For private connectivity, point
+  `BEDROCK_ENDPOINT_URL` at a `bedrock-runtime` VPC endpoint.
+
+  ```bash
+  export TSP_LLM_PROVIDER=bedrock
+  export BEDROCK_REGION=ap-southeast-1        # or AWS_REGION
+  # credentials via IAM role / AWS_PROFILE / env keys
+  ```
+
+* **`mock`** — deterministic offline extractor (dev, CI, UAT without LLM
+  spend).
+
+* **`auto`** (default) — gateway if `BEDROCK_GATEWAY_URL` is set, else
+  direct Bedrock if a region is configured, else mock. Explicit settings
+  fail loudly at call time if their prerequisite config is missing, so a
+  misconfigured production box cannot silently fall back to the mock.
+
+The masking guarantee is identical in all modes: only masked text ever
+leaves the application, whichever transport carries it. The active provider
+is visible in the GUI top bar, `/api/stats`, and on every stored extraction
+(`extractions.llm_mode`).
 
 ### Upgrading lesson retrieval to pgvector
 

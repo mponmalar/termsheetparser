@@ -45,6 +45,7 @@ h1, h2, h3 { margin: 0; }
 .stat span { color: var(--muted); }
 .stat .mode-mock { color: var(--amber); }
 .stat .mode-bedrock { color: var(--accent-ink); }
+.stat .mode-gateway { color: var(--accent-ink); }
 
 /* ------------------------------------------------------------------ layout */
 .layout {

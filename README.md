@@ -42,12 +42,17 @@ Upload (PDF/Word) ─▶ Ingestion ─▶ Masking ─▶ Memory ─▶ Extractio
 ## Quick start (fully offline, mock LLM)
 
 ```bash
-git clone https://github.com/mponmalar/termsheetparser -b draft
+git clone -b draft https://github.com/mponmalar/termsheetparser.git
 cd termsheetparser
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn backend.app.main:app --port 8000
 # open http://localhost:8000 and upload a file from samples/
 ```
+
+Dependencies are installed inside `.venv/` and never touch your global Python.
+Run `deactivate` to leave the environment; next time just `source .venv/bin/activate`.
 
 Or with Docker (PostgreSQL included): `docker compose up --build`
 

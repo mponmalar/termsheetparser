@@ -30,12 +30,17 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- Server ---------------------------------------------------------------
 TSP_HOST      = _env("TSP_HOST",      "127.0.0.1")
-TSP_PORT      = int(_env("TSP_PORT",  "8000") or "8000")
+TSP_PORT      = int(_env("TSP_PORT", "8000") or "8000")
 TSP_RELOAD    = _env("TSP_RELOAD",    "true").lower() in ("1", "true", "yes")
 TSP_LOG_LEVEL = _env("TSP_LOG_LEVEL", "info")
 
 # --- Database -------------------------------------------------------------
-DATABASE_URL = _env("TSP_DATABASE_URL") or f"sqlite:///{DATA_DIR / 'termsheets.db'}"
+_raw_db_url = _env("TSP_DATABASE_URL").strip()
+# Accept only values that look like a DB URL (contain "://"); anything else
+# (blank, comment fragment, placeholder text) falls back to SQLite.
+DATABASE_URL = (_raw_db_url
+                if "://" in _raw_db_url
+                else f"sqlite:///{DATA_DIR / 'termsheets.db'}")
 
 # --- LLM provider ---------------------------------------------------------
 LLM_PROVIDER           = _env("TSP_LLM_PROVIDER", "auto").lower()

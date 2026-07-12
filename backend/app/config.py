@@ -44,7 +44,7 @@ DATABASE_URL = (_raw_db_url
 
 # --- LLM provider ---------------------------------------------------------
 LLM_PROVIDER           = _env("TSP_LLM_PROVIDER", "auto").lower()
-BEDROCK_MODEL_ID       = _env("BEDROCK_MODEL_ID", "ap.anthropic.claude-3-5-sonnet-20241022-v2:0")
+BEDROCK_MODEL_ID       = _env("BEDROCK_MODEL_ID", "apac.anthropic.claude-3-5-sonnet-20241022-v2:0")
 BEDROCK_TIMEOUT_SECONDS = int(_env("BEDROCK_TIMEOUT_SECONDS", "120") or "120")
 LLM_MAX_TOKENS         = int(_env("LLM_MAX_TOKENS", "4000") or "4000")
 
